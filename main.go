@@ -43,6 +43,10 @@ func main() {
 	go serveMux.HandleFunc(
 		"/healthz",
 		func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != "GET" {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
 			_, err := w.Write([]byte("OK"))
 			if err != nil {
 				_ = fmt.Errorf("error writing /healthz response: %v", err)
@@ -50,17 +54,31 @@ func main() {
 			w.Header().Set("Content-Type", "text/plain")
 		},
 	)
-	go serveMux.HandleFunc("/reset", func(w http.ResponseWriter, r *http.Request) {
-		config.fileServerHits.Store(0)
-	})
-	go serveMux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
-		num := config.fileServerHits.Load()
-		msg := fmt.Sprintf("Hits: %v", num)
-		_, err := w.Write([]byte(msg))
-		if err != nil {
-			_ = fmt.Errorf("error writing /metrics response: %v", err)
-		}
-	})
+	go serveMux.HandleFunc(
+		"/reset",
+		func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != "POST" {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			config.fileServerHits.Store(0)
+		},
+	)
+	go serveMux.HandleFunc(
+		"/metrics",
+		func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != "GET" {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			num := config.fileServerHits.Load()
+			msg := fmt.Sprintf("Hits: %v", num)
+			_, err := w.Write([]byte(msg))
+			if err != nil {
+				_ = fmt.Errorf("error writing /metrics response: %v", err)
+			}
+		},
+	)
 
 	err := server.ListenAndServe()
 	if err != nil {
