@@ -35,13 +35,15 @@ func main() {
 		),
 	)
 	go serveMux.Handle(
-		"/app/assets",
+		"/app/assets/",
 		http.StripPrefix("/app/assets",
-			http.FileServer(http.Dir("./assets/")),
+			config.middlewareMetricsInc(
+				http.FileServer(http.Dir("./assets/")),
+			),
 		),
 	)
 	go serveMux.HandleFunc(
-		"/healthz",
+		"/api/healthz",
 		func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != "GET" {
 				w.WriteHeader(http.StatusMethodNotAllowed)
@@ -55,7 +57,7 @@ func main() {
 		},
 	)
 	go serveMux.HandleFunc(
-		"/reset",
+		"/api/reset",
 		func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != "POST" {
 				w.WriteHeader(http.StatusMethodNotAllowed)
@@ -65,7 +67,7 @@ func main() {
 		},
 	)
 	go serveMux.HandleFunc(
-		"/metrics",
+		"/api/metrics",
 		func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != "GET" {
 				w.WriteHeader(http.StatusMethodNotAllowed)
