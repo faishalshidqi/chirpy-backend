@@ -11,12 +11,24 @@ func main() {
 		Handler: serveMux,
 	}
 	serveMux.Handle(
-		"/",
-		http.FileServer(http.Dir(".")),
+		"/app",
+		http.StripPrefix("/app",
+			http.FileServer(http.Dir("./")),
+		),
 	)
 	serveMux.Handle(
-		"/assets",
-		http.FileServer(http.Dir("./assets/")),
+		"/app/assets",
+		http.StripPrefix("/app/assets",
+			http.FileServer(http.Dir("./assets/")),
+		),
+	)
+	serveMux.HandleFunc(
+		"/healthz",
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK"))
+			w.Header().Set("Content-Type", "text/plain")
+		},
 	)
 
 	server.ListenAndServe()
