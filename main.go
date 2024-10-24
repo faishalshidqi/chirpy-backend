@@ -93,7 +93,7 @@ func main() {
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
-			_, err := config.dbQueries.EmptyUsersTable(r.Context())
+			err := config.dbQueries.EmptyUsersTable(r.Context())
 			if err != nil {
 				return
 			}
