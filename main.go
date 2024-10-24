@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sync/atomic"
 )
@@ -81,6 +83,66 @@ func main() {
 			if err != nil {
 				_ = fmt.Errorf("error writing /metrics response: %v", err)
 			}
+		},
+	)
+	go serveMux.HandleFunc(
+		"/api/validate_chirp",
+		func(w http.ResponseWriter, r *http.Request) {
+			type parameters struct {
+				Body string `json:"body"`
+			}
+
+			type response struct {
+				Valid bool   `json:"valid"`
+				Error string `json:"error"`
+			}
+
+			if r.Method != "POST" {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+
+			decoder := json.NewDecoder(r.Body)
+			params := parameters{}
+			err := decoder.Decode(&params)
+			if err != nil {
+				dat, err := json.Marshal(response{
+					Error: "error marshalling JSON: " + err.Error(),
+				})
+				if err != nil {
+					log.Printf("error writing /validate_chirp response: %v", err)
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write(dat)
+				return
+			}
+
+			if len(params.Body) > 140 {
+				dat, err := json.Marshal(response{
+					Error: "Chirp is too long",
+				})
+				if err != nil {
+					log.Printf("error writing /validate_chirp response: %v", err)
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write(dat)
+			} else {
+				dat, err := json.Marshal(response{
+					Valid: true,
+				})
+				if err != nil {
+					log.Printf("error writing /validate_chirp response: %v", err)
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				w.Header().Add("Content-Type", "application/json")
+				w.Write(dat)
+			}
+
 		},
 	)
 
