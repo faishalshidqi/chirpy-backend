@@ -7,6 +7,7 @@ package database
 
 import (
 	"context"
+	"database/sql"
 )
 
 const createUser = `-- name: CreateUser :one
@@ -23,4 +24,12 @@ func (q *Queries) CreateUser(ctx context.Context, email string) (User, error) {
 		&i.Email,
 	)
 	return i, err
+}
+
+const emptyUsersTable = `-- name: EmptyUsersTable :execresult
+delete from users
+`
+
+func (q *Queries) EmptyUsersTable(ctx context.Context) (sql.Result, error) {
+	return q.db.ExecContext(ctx, emptyUsersTable)
 }

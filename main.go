@@ -5,12 +5,16 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/google/uuid"
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"log"
 	"net/http"
+	"net/mail"
 	"os"
 	"strings"
 	"sync/atomic"
+	"time"
 )
 
 type apiConfig struct {
@@ -26,7 +30,14 @@ func (config *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 }
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+		return
+	}
 	dbUrl := os.Getenv("DB_URL")
+	platform := os.Getenv("PLATFORM")
+
 	db, err := sql.Open("postgres", dbUrl)
 	if err != nil {
 		_ = fmt.Errorf("error opening database connection: %v", err)
@@ -78,7 +89,16 @@ func main() {
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				return
 			}
+			if platform != "dev" {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			_, err := config.dbQueries.EmptyUsersTable(r.Context())
+			if err != nil {
+				return
+			}
 			config.fileServerHits.Store(0)
+
 		},
 	)
 	go serveMux.HandleFunc(
@@ -108,7 +128,7 @@ func main() {
 			type response struct {
 				Valid       bool   `json:"valid"`
 				Error       string `json:"error"`
-				CleanedBody string `json:".cleaned_body"`
+				CleanedBody string `json:"cleaned_body"`
 			}
 
 			if r.Method != "POST" {
@@ -174,6 +194,62 @@ func main() {
 
 			}
 
+		},
+	)
+	go serveMux.HandleFunc(
+		"/api/users",
+		func(w http.ResponseWriter, r *http.Request) {
+			type parameters struct {
+				Email string `json:"email"`
+			}
+			type response struct {
+				Error     string    `json:"error"`
+				ID        uuid.UUID `json:"id"`
+				CreatedAt time.Time `json:"created_at"`
+				UpdatedAt time.Time `json:"updated_at"`
+				Email     string    `json:"email"`
+			}
+			if r.Method != "POST" {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			w.Header().Add("Content-Type", "application/json")
+			decoder := json.NewDecoder(r.Body)
+			params := parameters{}
+			err := decoder.Decode(&params)
+			email, emailParseErr := mail.ParseAddress(params.Email)
+			if emailParseErr != nil {
+				w.WriteHeader(http.StatusBadRequest)
+			}
+			user, createUserErr := config.dbQueries.CreateUser(r.Context(), email.Address)
+			if createUserErr != nil {
+				return
+			}
+			if err != nil {
+				dat, err := json.Marshal(response{
+					Error: "error marshalling JSON: " + err.Error(),
+				})
+				if err != nil {
+					log.Printf("error writing /api/users response: %v", err)
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write(dat)
+				return
+			}
+			dat, err := json.Marshal(response{
+				ID:        user.ID,
+				CreatedAt: user.CreatedAt,
+				UpdatedAt: user.UpdatedAt,
+				Email:     user.Email,
+			})
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			w.Write(dat)
 		},
 	)
 
