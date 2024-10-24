@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync/atomic"
 )
 
@@ -93,8 +94,9 @@ func main() {
 			}
 
 			type response struct {
-				Valid bool   `json:"valid"`
-				Error string `json:"error"`
+				Valid       bool   `json:"valid"`
+				Error       string `json:"error"`
+				CleanedBody string `json:".cleaned_body"`
 			}
 
 			if r.Method != "POST" {
@@ -130,17 +132,34 @@ func main() {
 				}
 				w.WriteHeader(http.StatusBadRequest)
 				w.Write(dat)
+				return
 			} else {
+				w.Header().Add("Content-Type", "application/json")
+				body := strings.Split(params.Body, " ")
+				strings.ReplaceAll(body[0], " ", "")
+				for i, word := range body {
+					if strings.ToLower(word) == "kerfuffle" {
+						body[i] = "****"
+					}
+					if strings.ToLower(word) == "sharbert" {
+						body[i] = "****"
+					}
+					if strings.ToLower(word) == "fornax" {
+						body[i] = "****"
+					}
+				}
 				dat, err := json.Marshal(response{
-					Valid: true,
+					Valid:       true,
+					CleanedBody: strings.Join(body, " "),
 				})
 				if err != nil {
 					log.Printf("error writing /validate_chirp response: %v", err)
 					w.WriteHeader(http.StatusInternalServerError)
 					return
 				}
-				w.Header().Add("Content-Type", "application/json")
 				w.Write(dat)
+				return
+
 			}
 
 		},
