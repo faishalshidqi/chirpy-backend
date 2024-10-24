@@ -119,16 +119,20 @@ func main() {
 		},
 	)
 	go serveMux.HandleFunc(
-		"/api/validate_chirp",
+		"/api/chirps",
 		func(w http.ResponseWriter, r *http.Request) {
 			type parameters struct {
-				Body string `json:"body"`
+				Body   string    `json:"body"`
+				UserID uuid.UUID `json:"user_id"`
 			}
 
 			type response struct {
-				Valid       bool   `json:"valid"`
-				Error       string `json:"error"`
-				CleanedBody string `json:"cleaned_body"`
+				Error     string    `json:"error"`
+				ID        uuid.UUID `json:"id"`
+				CreatedAt time.Time `json:"created_at"`
+				UpdatedAt time.Time `json:"updated_at"`
+				Body      string    `json:"body"`
+				UserID    uuid.UUID `json:"user_id"`
 			}
 
 			if r.Method != "POST" {
@@ -144,7 +148,7 @@ func main() {
 					Error: "error marshalling JSON: " + err.Error(),
 				})
 				if err != nil {
-					log.Printf("error writing /validate_chirp response: %v", err)
+					log.Printf("error writing /api/chirps response: %v", err)
 					w.WriteHeader(http.StatusInternalServerError)
 					return
 				}
@@ -180,15 +184,26 @@ func main() {
 						body[i] = "****"
 					}
 				}
+				chirp, err := config.dbQueries.CreateChirp(r.Context(), database.CreateChirpParams{
+					Body:   strings.Join(body, " "),
+					UserID: params.UserID,
+				})
+				if err != nil {
+					return
+				}
 				dat, err := json.Marshal(response{
-					Valid:       true,
-					CleanedBody: strings.Join(body, " "),
+					ID:        chirp.ID,
+					CreatedAt: chirp.CreatedAt,
+					UpdatedAt: chirp.UpdatedAt,
+					Body:      chirp.Body,
+					UserID:    chirp.UserID,
 				})
 				if err != nil {
 					log.Printf("error writing /validate_chirp response: %v", err)
 					w.WriteHeader(http.StatusInternalServerError)
 					return
 				}
+				w.WriteHeader(http.StatusCreated)
 				w.Write(dat)
 				return
 
