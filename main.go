@@ -121,94 +121,127 @@ func main() {
 	go serveMux.HandleFunc(
 		"/api/chirps",
 		func(w http.ResponseWriter, r *http.Request) {
-			type parameters struct {
-				Body   string    `json:"body"`
-				UserID uuid.UUID `json:"user_id"`
-			}
+			if r.Method == "POST" {
+				type parameters struct {
+					Body   string    `json:"body"`
+					UserID uuid.UUID `json:"user_id"`
+				}
 
-			type response struct {
-				Error     string    `json:"error"`
-				ID        uuid.UUID `json:"id"`
-				CreatedAt time.Time `json:"created_at"`
-				UpdatedAt time.Time `json:"updated_at"`
-				Body      string    `json:"body"`
-				UserID    uuid.UUID `json:"user_id"`
-			}
+				type response struct {
+					Error     string    `json:"error"`
+					ID        uuid.UUID `json:"id"`
+					CreatedAt time.Time `json:"created_at"`
+					UpdatedAt time.Time `json:"updated_at"`
+					Body      string    `json:"body"`
+					UserID    uuid.UUID `json:"user_id"`
+				}
 
-			if r.Method != "POST" {
-				w.WriteHeader(http.StatusMethodNotAllowed)
-				return
-			}
+				/*
+					if r.Method != "POST" {
+						w.WriteHeader(http.StatusMethodNotAllowed)
+						return
+					}
+				*/
 
-			decoder := json.NewDecoder(r.Body)
-			params := parameters{}
-			err := decoder.Decode(&params)
-			if err != nil {
-				dat, err := json.Marshal(response{
-					Error: "error marshalling JSON: " + err.Error(),
-				})
+				decoder := json.NewDecoder(r.Body)
+				params := parameters{}
+				err := decoder.Decode(&params)
 				if err != nil {
-					log.Printf("error writing /api/chirps response: %v", err)
-					w.WriteHeader(http.StatusInternalServerError)
+					dat, err := json.Marshal(response{
+						Error: "error marshalling JSON: " + err.Error(),
+					})
+					if err != nil {
+						log.Printf("error writing /api/chirps response: %v", err)
+						w.WriteHeader(http.StatusInternalServerError)
+						return
+					}
+					w.WriteHeader(http.StatusBadRequest)
+					w.Write(dat)
 					return
 				}
-				w.WriteHeader(http.StatusBadRequest)
-				w.Write(dat)
-				return
-			}
 
-			if len(params.Body) > 140 {
-				dat, err := json.Marshal(response{
-					Error: "Chirp is too long",
-				})
-				if err != nil {
-					log.Printf("error writing /validate_chirp response: %v", err)
-					w.WriteHeader(http.StatusInternalServerError)
+				if len(params.Body) > 140 {
+					dat, err := json.Marshal(response{
+						Error: "Chirp is too long",
+					})
+					if err != nil {
+						log.Printf("error writing /validate_chirp response: %v", err)
+						w.WriteHeader(http.StatusInternalServerError)
+						return
+					}
+					w.WriteHeader(http.StatusBadRequest)
+					w.Write(dat)
+					return
+				} else {
+					w.Header().Add("Content-Type", "application/json")
+					body := strings.Split(params.Body, " ")
+					strings.ReplaceAll(body[0], " ", "")
+					for i, word := range body {
+						if strings.ToLower(word) == "kerfuffle" {
+							body[i] = "****"
+						}
+						if strings.ToLower(word) == "sharbert" {
+							body[i] = "****"
+						}
+						if strings.ToLower(word) == "fornax" {
+							body[i] = "****"
+						}
+					}
+					chirp, err := config.dbQueries.CreateChirp(r.Context(), database.CreateChirpParams{
+						Body:   strings.Join(body, " "),
+						UserID: params.UserID,
+					})
+					if err != nil {
+						return
+					}
+					dat, err := json.Marshal(response{
+						ID:        chirp.ID,
+						CreatedAt: chirp.CreatedAt,
+						UpdatedAt: chirp.UpdatedAt,
+						Body:      chirp.Body,
+						UserID:    chirp.UserID,
+					})
+					if err != nil {
+						log.Printf("error writing /validate_chirp response: %v", err)
+						w.WriteHeader(http.StatusInternalServerError)
+						return
+					}
+					w.WriteHeader(http.StatusCreated)
+					w.Write(dat)
+					return
+
+				}
+			} else if r.Method == "GET" {
+				type response struct {
+					Error     string    `json:"error"`
+					ID        uuid.UUID `json:"id"`
+					CreatedAt time.Time `json:"created_at"`
+					UpdatedAt time.Time `json:"updated_at"`
+					Body      string    `json:"body"`
+					UserID    uuid.UUID `json:"user_id"`
+				}
+				if r.Method != "GET" {
+					w.WriteHeader(http.StatusMethodNotAllowed)
 					return
 				}
-				w.WriteHeader(http.StatusBadRequest)
-				w.Write(dat)
-				return
-			} else {
 				w.Header().Add("Content-Type", "application/json")
-				body := strings.Split(params.Body, " ")
-				strings.ReplaceAll(body[0], " ", "")
-				for i, word := range body {
-					if strings.ToLower(word) == "kerfuffle" {
-						body[i] = "****"
-					}
-					if strings.ToLower(word) == "sharbert" {
-						body[i] = "****"
-					}
-					if strings.ToLower(word) == "fornax" {
-						body[i] = "****"
-					}
-				}
-				chirp, err := config.dbQueries.CreateChirp(r.Context(), database.CreateChirpParams{
-					Body:   strings.Join(body, " "),
-					UserID: params.UserID,
-				})
+				chirps, err := config.dbQueries.RetrieveChirps(r.Context())
 				if err != nil {
 					return
 				}
-				dat, err := json.Marshal(response{
-					ID:        chirp.ID,
-					CreatedAt: chirp.CreatedAt,
-					UpdatedAt: chirp.UpdatedAt,
-					Body:      chirp.Body,
-					UserID:    chirp.UserID,
-				})
-				if err != nil {
-					log.Printf("error writing /validate_chirp response: %v", err)
-					w.WriteHeader(http.StatusInternalServerError)
-					return
+				retChirps := make([]response, len(chirps))
+				for i, chirp := range chirps {
+					retChirps[i] = response{
+						ID:        chirp.ID,
+						CreatedAt: chirp.CreatedAt,
+						UpdatedAt: chirp.UpdatedAt,
+						Body:      chirp.Body,
+						UserID:    chirp.UserID,
+					}
 				}
-				w.WriteHeader(http.StatusCreated)
+				dat, err := json.Marshal(retChirps)
 				w.Write(dat)
-				return
-
 			}
-
 		},
 	)
 	go serveMux.HandleFunc(
