@@ -57,7 +57,7 @@ func main() {
 		},
 	)
 	go serveMux.HandleFunc(
-		"/api/reset",
+		"/admin/reset",
 		func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != "POST" {
 				w.WriteHeader(http.StatusMethodNotAllowed)
@@ -67,14 +67,16 @@ func main() {
 		},
 	)
 	go serveMux.HandleFunc(
-		"/api/metrics",
+		"/admin/metrics",
 		func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != "GET" {
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				return
 			}
+
 			num := config.fileServerHits.Load()
-			msg := fmt.Sprintf("Hits: %v", num)
+			msg := fmt.Sprintf("<html>\n  <body>\n    <h1>Welcome, Chirpy Admin</h1>\n    <p>Chirpy has been visited %d times!</p>\n  </body>\n</html>", num)
+			w.Header().Set("Content-Type", "text/html")
 			_, err := w.Write([]byte(msg))
 			if err != nil {
 				_ = fmt.Errorf("error writing /metrics response: %v", err)
