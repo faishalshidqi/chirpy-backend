@@ -135,14 +135,6 @@ func main() {
 					Body      string    `json:"body"`
 					UserID    uuid.UUID `json:"user_id"`
 				}
-
-				/*
-					if r.Method != "POST" {
-						w.WriteHeader(http.StatusMethodNotAllowed)
-						return
-					}
-				*/
-
 				decoder := json.NewDecoder(r.Body)
 				params := parameters{}
 				err := decoder.Decode(&params)
@@ -241,6 +233,51 @@ func main() {
 				}
 				dat, err := json.Marshal(retChirps)
 				w.Write(dat)
+			}
+		},
+	)
+	go serveMux.HandleFunc(
+		"/api/chirps/{id}",
+		func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != "GET" {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			type response struct {
+				Error     string    `json:"error"`
+				ID        uuid.UUID `json:"id"`
+				CreatedAt time.Time `json:"created_at"`
+				UpdatedAt time.Time `json:"updated_at"`
+				Body      string    `json:"body"`
+				UserID    uuid.UUID `json:"user_id"`
+			}
+			id := r.PathValue("id")
+			if id != "" {
+				chirp, err := config.dbQueries.RetrieveChirpById(r.Context(), uuid.MustParse(id))
+				if err != nil {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+
+				if chirp.Body == "" {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+
+				dat, err := json.Marshal(response{
+					ID:        chirp.ID,
+					CreatedAt: chirp.CreatedAt,
+					UpdatedAt: chirp.UpdatedAt,
+					Body:      chirp.Body,
+					UserID:    chirp.UserID,
+				})
+				if err != nil {
+					log.Printf("error writing /validate_chirp response: %v", err)
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				w.Write(dat)
+				return
 			}
 		},
 	)
