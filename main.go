@@ -1,16 +1,21 @@
 package main
 
 import (
+	"bootdevHTTPServer/internal/database"
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	_ "github.com/lib/pq"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
 )
 
 type apiConfig struct {
 	fileServerHits atomic.Int32
+	dbQueries      *database.Queries
 }
 
 func (config *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -21,9 +26,16 @@ func (config *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 }
 
 func main() {
+	dbUrl := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbUrl)
+	if err != nil {
+		_ = fmt.Errorf("error opening database connection: %v", err)
+	}
+
 	serveMux := http.NewServeMux()
 	config := apiConfig{
 		fileServerHits: atomic.Int32{},
+		dbQueries:      database.New(db),
 	}
 	var server = &http.Server{
 		Addr:    ":8080",
@@ -165,7 +177,7 @@ func main() {
 		},
 	)
 
-	err := server.ListenAndServe()
+	err = server.ListenAndServe()
 	if err != nil {
 		_ = fmt.Errorf("server isn't starting")
 	}
