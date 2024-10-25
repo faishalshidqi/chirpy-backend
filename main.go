@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bootdevHTTPServer/internal/auth"
 	"bootdevHTTPServer/internal/database"
 	"database/sql"
 	"encoding/json"
@@ -121,6 +122,10 @@ func main() {
 	go serveMux.HandleFunc(
 		"/api/chirps",
 		func(w http.ResponseWriter, r *http.Request) {
+			type errorAndMessage struct {
+				Error   string `json:"error"`
+				Message string `json:"message"`
+			}
 			if r.Method == "POST" {
 				type parameters struct {
 					Body   string    `json:"body"`
@@ -128,7 +133,6 @@ func main() {
 				}
 
 				type response struct {
-					Error     string    `json:"error"`
 					ID        uuid.UUID `json:"id"`
 					CreatedAt time.Time `json:"created_at"`
 					UpdatedAt time.Time `json:"updated_at"`
@@ -139,7 +143,7 @@ func main() {
 				params := parameters{}
 				err := decoder.Decode(&params)
 				if err != nil {
-					dat, err := json.Marshal(response{
+					dat, err := json.Marshal(errorAndMessage{
 						Error: "error marshalling JSON: " + err.Error(),
 					})
 					if err != nil {
@@ -153,7 +157,7 @@ func main() {
 				}
 
 				if len(params.Body) > 140 {
-					dat, err := json.Marshal(response{
+					dat, err := json.Marshal(errorAndMessage{
 						Error: "Chirp is too long",
 					})
 					if err != nil {
@@ -205,7 +209,6 @@ func main() {
 				}
 			} else if r.Method == "GET" {
 				type response struct {
-					Error     string    `json:"error"`
 					ID        uuid.UUID `json:"id"`
 					CreatedAt time.Time `json:"created_at"`
 					UpdatedAt time.Time `json:"updated_at"`
@@ -243,8 +246,11 @@ func main() {
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				return
 			}
+			type errorAndMessage struct {
+				Error   string `json:"error"`
+				Message string `json:"message"`
+			}
 			type response struct {
-				Error     string    `json:"error"`
 				ID        uuid.UUID `json:"id"`
 				CreatedAt time.Time `json:"created_at"`
 				UpdatedAt time.Time `json:"updated_at"`
@@ -285,10 +291,14 @@ func main() {
 		"/api/users",
 		func(w http.ResponseWriter, r *http.Request) {
 			type parameters struct {
-				Email string `json:"email"`
+				Email    string `json:"email"`
+				Password string `json:"password"`
+			}
+			type errorAndMessage struct {
+				Error   string `json:"error"`
+				Message string `json:"message"`
 			}
 			type response struct {
-				Error     string    `json:"error"`
 				ID        uuid.UUID `json:"id"`
 				CreatedAt time.Time `json:"created_at"`
 				UpdatedAt time.Time `json:"updated_at"`
@@ -306,12 +316,23 @@ func main() {
 			if emailParseErr != nil {
 				w.WriteHeader(http.StatusBadRequest)
 			}
-			user, createUserErr := config.dbQueries.CreateUser(r.Context(), email.Address)
+			hashed, err := auth.HashPassword(params.Password)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			user, createUserErr := config.dbQueries.CreateUser(
+				r.Context(),
+				database.CreateUserParams{
+					Email:          email.Address,
+					HashedPassword: hashed,
+				},
+			)
 			if createUserErr != nil {
 				return
 			}
 			if err != nil {
-				dat, err := json.Marshal(response{
+				dat, err := json.Marshal(errorAndMessage{
 					Error: "error marshalling JSON: " + err.Error(),
 				})
 				if err != nil {
@@ -335,6 +356,62 @@ func main() {
 			}
 			w.WriteHeader(http.StatusCreated)
 			w.Write(dat)
+		},
+	)
+
+	go serveMux.HandleFunc(
+		"/api/login",
+		func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != "POST" {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			type parameters struct {
+				Email    string `json:"email"`
+				Password string `json:"password"`
+			}
+			type errorAndMessage struct {
+				Error   string `json:"error"`
+				Message string `json:"message"`
+			}
+			type response struct {
+				ID        uuid.UUID `json:"id"`
+				CreatedAt time.Time `json:"created_at"`
+				UpdatedAt time.Time `json:"updated_at"`
+				Email     string    `json:"email"`
+			}
+			w.Header().Add("Content-Type", "application/json")
+			decoder := json.NewDecoder(r.Body)
+			params := parameters{}
+			err := decoder.Decode(&params)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			user, err := config.dbQueries.GetUserByEmail(r.Context(), params.Email)
+			if err != nil {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			err = auth.CheckPasswordHash(params.Password, user.HashedPassword)
+			if err != nil {
+				marshal, _ := json.Marshal(errorAndMessage{
+					Message: "Incorrect email or password",
+				})
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write(marshal)
+				return
+			}
+			data, err := json.Marshal(response{
+				ID:        user.ID,
+				Email:     user.Email,
+				CreatedAt: user.CreatedAt,
+				UpdatedAt: user.UpdatedAt,
+			})
+			if err != nil {
+				return
+			}
+			w.Write(data)
 		},
 	)
 
