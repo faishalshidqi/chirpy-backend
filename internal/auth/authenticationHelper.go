@@ -29,14 +29,11 @@ func CheckPasswordHash(password, hash string) error {
 func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (string, error) {
 	token := jwt.NewWithClaims(
 		jwt.SigningMethodHS256,
-		CustomClaims{
-			UserID: userID,
-			RegisteredClaims: jwt.RegisteredClaims{
-				Issuer:    "chirpy",
-				IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
-				ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(expiresIn * time.Second)),
-				Subject:   userID.String(),
-			},
+		jwt.RegisteredClaims{
+			Issuer:    "chirpy",
+			IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(expiresIn * time.Second)),
+			Subject:   userID.String(),
 		},
 	)
 	signedString, err := token.SignedString([]byte(tokenSecret))
@@ -44,11 +41,6 @@ func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (str
 		return "", err
 	}
 	return signedString, nil
-}
-
-type CustomClaims struct {
-	UserID uuid.UUID `json:"user_id"`
-	jwt.RegisteredClaims
 }
 
 func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
@@ -60,13 +52,11 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 	if err != nil {
 		return [16]byte{}, err
 	}
-	claims := &CustomClaims{
-		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    issuer,
-			Subject:   subject,
-			ExpiresAt: expirationTime,
-			IssuedAt:  at,
-		},
+	claims := &jwt.RegisteredClaims{
+		Issuer:    issuer,
+		IssuedAt:  at,
+		ExpiresAt: expirationTime,
+		Subject:   subject,
 	}
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {

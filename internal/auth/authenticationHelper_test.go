@@ -60,23 +60,12 @@ func (s *ValidateJWTTestSuite) SetupSuite() {
 }
 
 func generateJWT(userID uuid.UUID, secret string, expiration time.Duration) (string, error) {
-	claims := CustomClaims{
-		UserID: userID,
-		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    "chirpy",
-			IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
-			ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(expiration)),
-			Subject:   userID.String(),
-		},
+	claims := jwt.RegisteredClaims{
+		Issuer:    "chirpy",
+		IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
+		ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(expiration)),
+		Subject:   userID.String(),
 	}
-	/*
-		claims := jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			Issuer:    "chirpy",
-			Subject:   userID.String(),
-		}
-	*/
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(secret))
 }
