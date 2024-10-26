@@ -21,6 +21,7 @@ import (
 type apiConfig struct {
 	fileServerHits atomic.Int32
 	dbQueries      *database.Queries
+	jwtSecret      []byte
 }
 
 func (config *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -38,6 +39,7 @@ func main() {
 	}
 	dbUrl := os.Getenv("DB_URL")
 	platform := os.Getenv("PLATFORM")
+	jwtSecret := os.Getenv("JWT_SECRET")
 
 	db, err := sql.Open("postgres", dbUrl)
 	if err != nil {
@@ -48,6 +50,7 @@ func main() {
 	config := apiConfig{
 		fileServerHits: atomic.Int32{},
 		dbQueries:      database.New(db),
+		jwtSecret:      []byte(jwtSecret),
 	}
 	var server = &http.Server{
 		Addr:    ":8080",
@@ -183,9 +186,19 @@ func main() {
 							body[i] = "****"
 						}
 					}
+					bearerToken, bearerTokenErr := auth.GetBearerToken(r.Header)
+					if bearerTokenErr != nil {
+						w.WriteHeader(http.StatusBadRequest)
+						return
+					}
+					userID, err := auth.ValidateJWT(bearerToken, string(config.jwtSecret))
+					if err != nil {
+						w.WriteHeader(http.StatusUnauthorized)
+						return
+					}
 					chirp, err := config.dbQueries.CreateChirp(r.Context(), database.CreateChirpParams{
 						Body:   strings.Join(body, " "),
-						UserID: params.UserID,
+						UserID: userID,
 					})
 					if err != nil {
 						return
@@ -367,8 +380,9 @@ func main() {
 				return
 			}
 			type parameters struct {
-				Email    string `json:"email"`
-				Password string `json:"password"`
+				Email            string `json:"email"`
+				Password         string `json:"password"`
+				ExpiresInSeconds int    `json:"expires_in_seconds"`
 			}
 			type errorAndMessage struct {
 				Error   string `json:"error"`
@@ -379,6 +393,7 @@ func main() {
 				CreatedAt time.Time `json:"created_at"`
 				UpdatedAt time.Time `json:"updated_at"`
 				Email     string    `json:"email"`
+				Token     string    `json:"token"`
 			}
 			w.Header().Add("Content-Type", "application/json")
 			decoder := json.NewDecoder(r.Body)
@@ -388,13 +403,13 @@ func main() {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			user, err := config.dbQueries.GetUserByEmail(r.Context(), params.Email)
-			if err != nil {
+			user, dbErr := config.dbQueries.GetUserByEmail(r.Context(), params.Email)
+			if dbErr != nil {
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
-			err = auth.CheckPasswordHash(params.Password, user.HashedPassword)
-			if err != nil {
+			hashErr := auth.CheckPasswordHash(params.Password, user.HashedPassword)
+			if hashErr != nil {
 				marshal, _ := json.Marshal(errorAndMessage{
 					Message: "Incorrect email or password",
 				})
@@ -402,11 +417,23 @@ func main() {
 				w.Write(marshal)
 				return
 			}
+			var expiresInSeconds int
+			if params.ExpiresInSeconds == 0 || params.ExpiresInSeconds > 3600 {
+				expiresInSeconds = 3600
+			} else {
+				expiresInSeconds = params.ExpiresInSeconds
+			}
+			jwt, JWTerr := auth.MakeJWT(user.ID, string(config.jwtSecret), time.Duration(expiresInSeconds))
+			if JWTerr != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
 			data, err := json.Marshal(response{
 				ID:        user.ID,
 				Email:     user.Email,
 				CreatedAt: user.CreatedAt,
 				UpdatedAt: user.UpdatedAt,
+				Token:     jwt,
 			})
 			if err != nil {
 				return
