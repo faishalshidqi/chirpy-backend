@@ -1,7 +1,7 @@
 package utils
 
 import (
-	"bootdevHTTPServer/internal/database"
+	"chirpy/internal/database"
 	"net/http"
 	"sync/atomic"
 )

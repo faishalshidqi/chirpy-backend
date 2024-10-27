@@ -1,9 +1,9 @@
 package main
 
 import (
-	"bootdevHTTPServer/internal/auth"
-	"bootdevHTTPServer/internal/database"
-	"bootdevHTTPServer/internal/utils"
+	"chirpy/internal/auth"
+	"chirpy/internal/database"
+	"chirpy/internal/utils"
 	"database/sql"
 	"encoding/json"
 	"fmt"
