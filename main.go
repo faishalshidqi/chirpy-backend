@@ -351,10 +351,11 @@ func main() {
 				Password string `json:"password"`
 			}
 			type response struct {
-				ID        uuid.UUID `json:"id"`
-				CreatedAt time.Time `json:"created_at"`
-				UpdatedAt time.Time `json:"updated_at"`
-				Email     string    `json:"email"`
+				ID          uuid.UUID `json:"id"`
+				CreatedAt   time.Time `json:"created_at"`
+				UpdatedAt   time.Time `json:"updated_at"`
+				Email       string    `json:"email"`
+				IsChirpyRed bool      `json:"is_chirpy_red"`
 			}
 			if r.Method == "POST" {
 				w.Header().Add("Content-Type", "application/json")
@@ -394,10 +395,11 @@ func main() {
 					return
 				}
 				dat, err := json.Marshal(response{
-					ID:        user.ID,
-					CreatedAt: user.CreatedAt,
-					UpdatedAt: user.UpdatedAt,
-					Email:     user.Email,
+					ID:          user.ID,
+					CreatedAt:   user.CreatedAt,
+					UpdatedAt:   user.UpdatedAt,
+					Email:       user.Email,
+					IsChirpyRed: user.IsChirpyRed,
 				})
 				if err != nil {
 					w.WriteHeader(http.StatusInternalServerError)
@@ -512,6 +514,7 @@ func main() {
 				Email        string    `json:"email"`
 				Token        string    `json:"token"`
 				RefreshToken string    `json:"refresh_token"`
+				IsChirpyRed  bool      `json:"is_chirpy_red"`
 			}
 			w.Header().Add("Content-Type", "application/json")
 			decoder := json.NewDecoder(r.Body)
@@ -563,6 +566,7 @@ func main() {
 				UpdatedAt:    user.UpdatedAt,
 				Token:        accessToken,
 				RefreshToken: refreshToken,
+				IsChirpyRed:  user.IsChirpyRed,
 			})
 			if err != nil {
 				return
@@ -649,6 +653,65 @@ func main() {
 			w.WriteHeader(http.StatusNoContent)
 		},
 	)
+	go serveMux.HandleFunc("/api/polka/webhooks", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" {
+			w.Header().Set("Content-Type", "application/json")
+			type parameters struct {
+				Event string `json:"event"`
+				Data  struct {
+					UserID string `json:"user_id"`
+				} `json:"data"`
+			}
+			decoder := json.NewDecoder(r.Body)
+			params := parameters{}
+			err := decoder.Decode(&params)
+			if err != nil {
+				log.Printf("Failed decoding body params")
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if params.Event != "user.upgraded" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			userID := params.Data.UserID
+			parsedUID, parseErr := uuid.Parse(userID)
+			if parseErr != nil {
+				log.Printf("Failed parsing userID %s", userID)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			user, getUserErr := config.DbQueries.GetUserById(r.Context(), parsedUID)
+			if getUserErr != nil {
+				marshal, _ := json.Marshal(utils.Error{
+					Error: "user not found",
+				})
+				log.Printf("Failed getting user %s", parsedUID)
+				w.WriteHeader(http.StatusNotFound)
+				w.Write(marshal)
+				return
+			}
+			_, updateUserErr := config.DbQueries.UpdateUserByID(
+				r.Context(),
+				database.UpdateUserByIDParams{
+					ID:             parsedUID,
+					CreatedAt:      user.CreatedAt,
+					Email:          user.Email,
+					HashedPassword: user.HashedPassword,
+					IsChirpyRed:    true,
+				},
+			)
+			if updateUserErr != nil {
+				log.Printf("Failed updating user %s", user.Email)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		} else {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+	})
 
 	err = server.ListenAndServe()
 	if err != nil {

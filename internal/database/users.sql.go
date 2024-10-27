@@ -13,7 +13,7 @@ import (
 )
 
 const createUser = `-- name: CreateUser :one
-insert into users (id, created_at, updated_at, email, hashed_password) values (gen_random_uuid(), NOW(), NOW(), $1, $2) returning id, created_at, updated_at, email, hashed_password
+insert into users (id, created_at, updated_at, email, hashed_password) values (gen_random_uuid(), NOW(), NOW(), $1, $2) returning id, created_at, updated_at, email, hashed_password, is_chirpy_red
 `
 
 type CreateUserParams struct {
@@ -30,6 +30,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.UpdatedAt,
 		&i.Email,
 		&i.HashedPassword,
+		&i.IsChirpyRed,
 	)
 	return i, err
 }
@@ -44,7 +45,7 @@ func (q *Queries) EmptyUsersTable(ctx context.Context) error {
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-select id, created_at, updated_at, email, hashed_password from users where email = $1
+select id, created_at, updated_at, email, hashed_password, is_chirpy_red from users where email = $1
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
@@ -56,12 +57,13 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.UpdatedAt,
 		&i.Email,
 		&i.HashedPassword,
+		&i.IsChirpyRed,
 	)
 	return i, err
 }
 
 const getUserById = `-- name: GetUserById :one
-select id, created_at, updated_at, email, hashed_password from users where id = $1
+select id, created_at, updated_at, email, hashed_password, is_chirpy_red from users where id = $1
 `
 
 func (q *Queries) GetUserById(ctx context.Context, id uuid.UUID) (User, error) {
@@ -73,12 +75,13 @@ func (q *Queries) GetUserById(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.UpdatedAt,
 		&i.Email,
 		&i.HashedPassword,
+		&i.IsChirpyRed,
 	)
 	return i, err
 }
 
 const updateUserByID = `-- name: UpdateUserByID :one
-update users set id = $1, created_at = $2, updated_at = NOW(), email = $3, hashed_password = $4 returning id, created_at, updated_at, email, hashed_password
+update users set id = $1, created_at = $2, updated_at = NOW(), email = $3, hashed_password = $4, is_chirpy_red = $5 where id = $1 returning id, created_at, updated_at, email, hashed_password, is_chirpy_red
 `
 
 type UpdateUserByIDParams struct {
@@ -86,6 +89,7 @@ type UpdateUserByIDParams struct {
 	CreatedAt      time.Time
 	Email          string
 	HashedPassword string
+	IsChirpyRed    bool
 }
 
 func (q *Queries) UpdateUserByID(ctx context.Context, arg UpdateUserByIDParams) (User, error) {
@@ -94,6 +98,7 @@ func (q *Queries) UpdateUserByID(ctx context.Context, arg UpdateUserByIDParams) 
 		arg.CreatedAt,
 		arg.Email,
 		arg.HashedPassword,
+		arg.IsChirpyRed,
 	)
 	var i User
 	err := row.Scan(
@@ -102,6 +107,7 @@ func (q *Queries) UpdateUserByID(ctx context.Context, arg UpdateUserByIDParams) 
 		&i.UpdatedAt,
 		&i.Email,
 		&i.HashedPassword,
+		&i.IsChirpyRed,
 	)
 	return i, err
 }
