@@ -297,58 +297,141 @@ func main() {
 				UpdatedAt time.Time `json:"updated_at"`
 				Email     string    `json:"email"`
 			}
-			if r.Method != "POST" {
-				w.WriteHeader(http.StatusMethodNotAllowed)
-				return
-			}
-			w.Header().Add("Content-Type", "application/json")
-			decoder := json.NewDecoder(r.Body)
-			params := parameters{}
-			err := decoder.Decode(&params)
-			email, emailParseErr := mail.ParseAddress(params.Email)
-			if emailParseErr != nil {
-				w.WriteHeader(http.StatusBadRequest)
-			}
-			hashed, err := auth.HashPassword(params.Password)
-			if err != nil {
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			user, createUserErr := config.DbQueries.CreateUser(
-				r.Context(),
-				database.CreateUserParams{
-					Email:          email.Address,
-					HashedPassword: hashed,
-				},
-			)
-			if createUserErr != nil {
-				return
-			}
-			if err != nil {
-				dat, err := json.Marshal(utils.Error{
-					Error: "error marshalling JSON: " + err.Error(),
+			if r.Method == "POST" {
+				w.Header().Add("Content-Type", "application/json")
+				decoder := json.NewDecoder(r.Body)
+				params := parameters{}
+				err := decoder.Decode(&params)
+				email, emailParseErr := mail.ParseAddress(params.Email)
+				if emailParseErr != nil {
+					w.WriteHeader(http.StatusBadRequest)
+				}
+				hashed, err := auth.HashPassword(params.Password)
+				if err != nil {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				user, createUserErr := config.DbQueries.CreateUser(
+					r.Context(),
+					database.CreateUserParams{
+						Email:          email.Address,
+						HashedPassword: hashed,
+					},
+				)
+				if createUserErr != nil {
+					return
+				}
+				if err != nil {
+					dat, err := json.Marshal(utils.Error{
+						Error: "error marshalling JSON: " + err.Error(),
+					})
+					if err != nil {
+						log.Printf("error writing /api/users response: %v", err)
+						w.WriteHeader(http.StatusInternalServerError)
+						return
+					}
+					w.WriteHeader(http.StatusBadRequest)
+					w.Write(dat)
+					return
+				}
+				dat, err := json.Marshal(response{
+					ID:        user.ID,
+					CreatedAt: user.CreatedAt,
+					UpdatedAt: user.UpdatedAt,
+					Email:     user.Email,
 				})
 				if err != nil {
-					log.Printf("error writing /api/users response: %v", err)
 					w.WriteHeader(http.StatusInternalServerError)
 					return
 				}
-				w.WriteHeader(http.StatusBadRequest)
+				w.WriteHeader(http.StatusCreated)
+				w.Write(dat)
+			} else if r.Method == "PUT" {
+				type parameters struct {
+					Password string `json:"password"`
+					Email    string `json:"email"`
+				}
+				type response struct {
+					ID        uuid.UUID `json:"id"`
+					CreatedAt time.Time `json:"created_at"`
+					UpdatedAt time.Time `json:"updated_at"`
+					Email     string    `json:"email"`
+				}
+				bearerToken, err := auth.GetBearerToken(r.Header)
+				if err != nil {
+					marshal, _ := json.Marshal(utils.Error{
+						Error: "invalid authentication token",
+					})
+					w.WriteHeader(http.StatusUnauthorized)
+					w.Write(marshal)
+					return
+				}
+				userID, validateErr := auth.ValidateJWT(bearerToken, string(config.JwtSecret))
+				if validateErr != nil {
+					marshal, _ := json.Marshal(utils.Error{
+						Error: "invalid authentication token",
+					})
+					w.WriteHeader(http.StatusUnauthorized)
+					w.Write(marshal)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				decoder := json.NewDecoder(r.Body)
+				params := parameters{}
+				decodeErr := decoder.Decode(&params)
+				if decodeErr != nil {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				email, emailParseErr := mail.ParseAddress(params.Email)
+				if emailParseErr != nil {
+					marshal, _ := json.Marshal(utils.Error{
+						Error: "invalid email",
+					})
+					w.WriteHeader(http.StatusBadRequest)
+					w.Write(marshal)
+					return
+				}
+				user, getUserErr := config.DbQueries.GetUserById(r.Context(), userID)
+				if getUserErr != nil {
+					log.Printf("error getting user by email %v: %v", params.Email, getUserErr)
+					marshal, _ := json.Marshal(utils.Error{
+						Error: fmt.Sprintf("email %v not found", email.Address),
+					})
+					w.WriteHeader(http.StatusNotFound)
+					w.Write(marshal)
+					return
+				}
+				hashedPassword, _ := auth.HashPassword(params.Password)
+				updatedUser, updateUserErr := config.DbQueries.UpdateUserByID(
+					r.Context(),
+					database.UpdateUserByIDParams{
+						ID:             userID,
+						Email:          email.Address,
+						CreatedAt:      user.CreatedAt,
+						HashedPassword: hashedPassword,
+					},
+				)
+				if updateUserErr != nil {
+					log.Printf("error updating user: %v", updateUserErr)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				dat, err := json.Marshal(response{
+					ID:        updatedUser.ID,
+					CreatedAt: updatedUser.CreatedAt,
+					UpdatedAt: updatedUser.UpdatedAt,
+					Email:     updatedUser.Email,
+				})
+				if err != nil {
+					log.Printf("error writing PUT /api/users response: %v", err)
+					return
+				}
 				w.Write(dat)
 				return
+			} else {
+				w.WriteHeader(http.StatusMethodNotAllowed)
 			}
-			dat, err := json.Marshal(response{
-				ID:        user.ID,
-				CreatedAt: user.CreatedAt,
-				UpdatedAt: user.UpdatedAt,
-				Email:     user.Email,
-			})
-			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-			w.WriteHeader(http.StatusCreated)
-			w.Write(dat)
 		},
 	)
 
@@ -459,21 +542,6 @@ func main() {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
-			/*
-				err = config.dbQueries.UpdateRefreshTokenByToken(
-					r.Context(),
-					database.UpdateRefreshTokenByTokenParams{
-						Token:     refreshToken.Token,
-						CreatedAt: refreshToken.CreatedAt,
-						UserID:    refreshToken.UserID,
-						ExpiresAt: time.Now().Add(24 * 60 * time.Hour),
-						RevokedAt: sql.NullTime{Time: time.Now(), Valid: true},
-					},
-				)
-				if err != nil {
-					return
-				}
-			*/
 			accessToken, err := auth.MakeJWT(refreshToken.UserID, string(config.JwtSecret), time.Hour)
 			if err != nil {
 				return

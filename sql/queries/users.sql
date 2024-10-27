@@ -4,3 +4,7 @@ insert into users (id, created_at, updated_at, email, hashed_password) values (g
 delete from users;
 -- name: GetUserByEmail :one
 select * from users where email = $1;
+-- name: UpdateUserByID :one
+update users set id = $1, created_at = $2, updated_at = NOW(), email = $3, hashed_password = $4 returning *;
+-- name: GetUserById :one
+select * from users where id = $1;

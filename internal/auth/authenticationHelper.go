@@ -102,7 +102,7 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 
 func GetBearerToken(header http.Header) (string, error) {
 	authHeader := header.Get("Authorization")
-	if authHeader == "" {
+	if len(strings.Split(authHeader, " ")) < 2 {
 		return "", errors.New("missing Authorization header")
 	}
 	return strings.Split(authHeader, " ")[1], nil
