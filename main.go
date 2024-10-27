@@ -28,6 +28,7 @@ func main() {
 	dbUrl := os.Getenv("DB_URL")
 	platform := os.Getenv("PLATFORM")
 	jwtSecret := os.Getenv("JWT_SECRET")
+	polkaKey := os.Getenv("POLKA_KEY")
 
 	db, err := sql.Open("postgres", dbUrl)
 	if err != nil {
@@ -39,6 +40,7 @@ func main() {
 		FileServerHits: atomic.Int32{},
 		DbQueries:      database.New(db),
 		JwtSecret:      []byte(jwtSecret),
+		PolkaKey:       polkaKey,
 	}
 	var server = &http.Server{
 		Addr:    ":8080",
@@ -662,6 +664,26 @@ func main() {
 					UserID string `json:"user_id"`
 				} `json:"data"`
 			}
+			apiKey, apiKeyErr := auth.GetAPIKey(r.Header)
+			if apiKeyErr != nil {
+				marshal, _ := json.Marshal(utils.Message{
+					Message: "Invalid key",
+				})
+
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write(marshal)
+				return
+			}
+
+			if apiKey != config.PolkaKey {
+				marshal, _ := json.Marshal(utils.Message{
+					Message: "Invalid key",
+				})
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write(marshal)
+				return
+			}
+
 			decoder := json.NewDecoder(r.Body)
 			params := parameters{}
 			err := decoder.Decode(&params)

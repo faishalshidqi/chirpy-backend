@@ -10,6 +10,7 @@ type ApiConfig struct {
 	FileServerHits atomic.Int32
 	DbQueries      *database.Queries
 	JwtSecret      []byte
+	PolkaKey       string
 }
 
 func (config *ApiConfig) MiddlewareMetricsInc(next http.Handler) http.Handler {
