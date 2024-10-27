@@ -3,6 +3,7 @@ package main
 import (
 	"bootdevHTTPServer/internal/auth"
 	"bootdevHTTPServer/internal/database"
+	"bootdevHTTPServer/internal/utils"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -17,19 +18,6 @@ import (
 	"sync/atomic"
 	"time"
 )
-
-type apiConfig struct {
-	fileServerHits atomic.Int32
-	dbQueries      *database.Queries
-	jwtSecret      []byte
-}
-
-func (config *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		config.fileServerHits.Add(1)
-		next.ServeHTTP(w, r)
-	})
-}
 
 func main() {
 	err := godotenv.Load()
@@ -47,10 +35,10 @@ func main() {
 	}
 
 	serveMux := http.NewServeMux()
-	config := apiConfig{
-		fileServerHits: atomic.Int32{},
-		dbQueries:      database.New(db),
-		jwtSecret:      []byte(jwtSecret),
+	config := utils.ApiConfig{
+		FileServerHits: atomic.Int32{},
+		DbQueries:      database.New(db),
+		JwtSecret:      []byte(jwtSecret),
 	}
 	var server = &http.Server{
 		Addr:    ":8080",
@@ -59,7 +47,7 @@ func main() {
 	go serveMux.Handle(
 		"/app",
 		http.StripPrefix("/app",
-			config.middlewareMetricsInc(
+			config.MiddlewareMetricsInc(
 				http.FileServer(http.Dir("./")),
 			),
 		),
@@ -67,7 +55,7 @@ func main() {
 	go serveMux.Handle(
 		"/app/assets/",
 		http.StripPrefix("/app/assets",
-			config.middlewareMetricsInc(
+			config.MiddlewareMetricsInc(
 				http.FileServer(http.Dir("./assets/")),
 			),
 		),
@@ -97,11 +85,11 @@ func main() {
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
-			err := config.dbQueries.EmptyUsersTable(r.Context())
+			err := config.DbQueries.EmptyUsersTable(r.Context())
 			if err != nil {
 				return
 			}
-			config.fileServerHits.Store(0)
+			config.FileServerHits.Store(0)
 
 		},
 	)
@@ -113,7 +101,7 @@ func main() {
 				return
 			}
 
-			num := config.fileServerHits.Load()
+			num := config.FileServerHits.Load()
 			msg := fmt.Sprintf("<html>\n  <body>\n    <h1>Welcome, Chirpy Admin</h1>\n    <p>Chirpy has been visited %d times!</p>\n  </body>\n</html>", num)
 			w.Header().Set("Content-Type", "text/html")
 			_, err := w.Write([]byte(msg))
@@ -125,10 +113,6 @@ func main() {
 	go serveMux.HandleFunc(
 		"/api/chirps",
 		func(w http.ResponseWriter, r *http.Request) {
-			type errorAndMessage struct {
-				Error   string `json:"error"`
-				Message string `json:"message"`
-			}
 			if r.Method == "POST" {
 				type parameters struct {
 					Body   string    `json:"body"`
@@ -146,7 +130,7 @@ func main() {
 				params := parameters{}
 				err := decoder.Decode(&params)
 				if err != nil {
-					dat, err := json.Marshal(errorAndMessage{
+					dat, err := json.Marshal(utils.Error{
 						Error: "error marshalling JSON: " + err.Error(),
 					})
 					if err != nil {
@@ -160,8 +144,8 @@ func main() {
 				}
 
 				if len(params.Body) > 140 {
-					dat, err := json.Marshal(errorAndMessage{
-						Error: "Chirp is too long",
+					dat, err := json.Marshal(utils.Message{
+						Message: "Chirp is too long",
 					})
 					if err != nil {
 						log.Printf("error writing /validate_chirp response: %v", err)
@@ -191,16 +175,16 @@ func main() {
 						w.WriteHeader(http.StatusBadRequest)
 						return
 					}
-					userID, err := auth.ValidateJWT(bearerToken, string(config.jwtSecret))
+					userID, err := auth.ValidateJWT(bearerToken, string(config.JwtSecret))
 					if err != nil {
-						marshal, _ := json.Marshal(errorAndMessage{
+						marshal, _ := json.Marshal(utils.Error{
 							Error: err.Error(),
 						})
 						w.WriteHeader(http.StatusUnauthorized)
 						w.Write(marshal)
 						return
 					}
-					chirp, err := config.dbQueries.CreateChirp(r.Context(), database.CreateChirpParams{
+					chirp, err := config.DbQueries.CreateChirp(r.Context(), database.CreateChirpParams{
 						Body:   strings.Join(body, " "),
 						UserID: userID,
 					})
@@ -237,7 +221,7 @@ func main() {
 					return
 				}
 				w.Header().Add("Content-Type", "application/json")
-				chirps, err := config.dbQueries.RetrieveChirps(r.Context())
+				chirps, err := config.DbQueries.RetrieveChirps(r.Context())
 				if err != nil {
 					return
 				}
@@ -263,10 +247,6 @@ func main() {
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				return
 			}
-			type errorAndMessage struct {
-				Error   string `json:"error"`
-				Message string `json:"message"`
-			}
 			type response struct {
 				ID        uuid.UUID `json:"id"`
 				CreatedAt time.Time `json:"created_at"`
@@ -276,7 +256,7 @@ func main() {
 			}
 			id := r.PathValue("id")
 			if id != "" {
-				chirp, err := config.dbQueries.RetrieveChirpById(r.Context(), uuid.MustParse(id))
+				chirp, err := config.DbQueries.RetrieveChirpById(r.Context(), uuid.MustParse(id))
 				if err != nil {
 					w.WriteHeader(http.StatusNotFound)
 					return
@@ -311,10 +291,6 @@ func main() {
 				Email    string `json:"email"`
 				Password string `json:"password"`
 			}
-			type errorAndMessage struct {
-				Error   string `json:"error"`
-				Message string `json:"message"`
-			}
 			type response struct {
 				ID        uuid.UUID `json:"id"`
 				CreatedAt time.Time `json:"created_at"`
@@ -338,7 +314,7 @@ func main() {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			user, createUserErr := config.dbQueries.CreateUser(
+			user, createUserErr := config.DbQueries.CreateUser(
 				r.Context(),
 				database.CreateUserParams{
 					Email:          email.Address,
@@ -349,7 +325,7 @@ func main() {
 				return
 			}
 			if err != nil {
-				dat, err := json.Marshal(errorAndMessage{
+				dat, err := json.Marshal(utils.Error{
 					Error: "error marshalling JSON: " + err.Error(),
 				})
 				if err != nil {
@@ -387,10 +363,6 @@ func main() {
 				Email    string `json:"email"`
 				Password string `json:"password"`
 			}
-			type errorAndMessage struct {
-				Error   string `json:"error"`
-				Message string `json:"message"`
-			}
 			type response struct {
 				ID           uuid.UUID `json:"id"`
 				CreatedAt    time.Time `json:"created_at"`
@@ -407,21 +379,21 @@ func main() {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			user, dbErr := config.dbQueries.GetUserByEmail(r.Context(), params.Email)
+			user, dbErr := config.DbQueries.GetUserByEmail(r.Context(), params.Email)
 			if dbErr != nil {
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
 			hashErr := auth.CheckPasswordHash(params.Password, user.HashedPassword)
 			if hashErr != nil {
-				marshal, _ := json.Marshal(errorAndMessage{
+				marshal, _ := json.Marshal(utils.Message{
 					Message: "Incorrect email or password",
 				})
 				w.WriteHeader(http.StatusUnauthorized)
 				w.Write(marshal)
 				return
 			}
-			accessToken, JWTerr := auth.MakeJWT(user.ID, string(config.jwtSecret), time.Hour)
+			accessToken, JWTerr := auth.MakeJWT(user.ID, string(config.JwtSecret), time.Hour)
 			if JWTerr != nil {
 				w.WriteHeader(http.StatusBadRequest)
 				return
@@ -431,7 +403,7 @@ func main() {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
-			_, err = config.dbQueries.CreateRefreshToken(
+			_, err = config.DbQueries.CreateRefreshToken(
 				r.Context(),
 				database.CreateRefreshTokenParams{
 					Token:     refreshToken,
@@ -471,7 +443,7 @@ func main() {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			refreshToken, err := config.dbQueries.GetRefreshTokenByToken(
+			refreshToken, err := config.DbQueries.GetRefreshTokenByToken(
 				r.Context(),
 				bearerToken,
 			)
@@ -502,7 +474,7 @@ func main() {
 					return
 				}
 			*/
-			accessToken, err := auth.MakeJWT(refreshToken.UserID, string(config.jwtSecret), time.Hour)
+			accessToken, err := auth.MakeJWT(refreshToken.UserID, string(config.JwtSecret), time.Hour)
 			if err != nil {
 				return
 			}
@@ -529,12 +501,12 @@ func main() {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			refreshToken, err := config.dbQueries.GetRefreshTokenByToken(r.Context(), bearerToken)
+			refreshToken, err := config.DbQueries.GetRefreshTokenByToken(r.Context(), bearerToken)
 			if err != nil {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
-			err = config.dbQueries.UpdateRefreshTokenByToken(
+			err = config.DbQueries.UpdateRefreshTokenByToken(
 				r.Context(),
 				database.UpdateRefreshTokenByTokenParams{
 					Token:     refreshToken.Token,
