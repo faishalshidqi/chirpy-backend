@@ -243,45 +243,104 @@ func main() {
 	go serveMux.HandleFunc(
 		"/api/chirps/{id}",
 		func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != "GET" {
+			if r.Method == "GET" {
+				type response struct {
+					ID        uuid.UUID `json:"id"`
+					CreatedAt time.Time `json:"created_at"`
+					UpdatedAt time.Time `json:"updated_at"`
+					Body      string    `json:"body"`
+					UserID    uuid.UUID `json:"user_id"`
+				}
+				id := r.PathValue("id")
+				if id != "" {
+					chirp, err := config.DbQueries.RetrieveChirpById(r.Context(), uuid.MustParse(id))
+					if err != nil {
+						w.WriteHeader(http.StatusNotFound)
+						return
+					}
+
+					if chirp.Body == "" {
+						w.WriteHeader(http.StatusNotFound)
+						return
+					}
+
+					dat, err := json.Marshal(response{
+						ID:        chirp.ID,
+						CreatedAt: chirp.CreatedAt,
+						UpdatedAt: chirp.UpdatedAt,
+						Body:      chirp.Body,
+						UserID:    chirp.UserID,
+					})
+					if err != nil {
+						log.Printf("error writing /validate_chirp response: %v", err)
+						w.WriteHeader(http.StatusInternalServerError)
+						return
+					}
+					w.Write(dat)
+					return
+				}
+			} else if r.Method == "DELETE" {
+				id := r.PathValue("id")
+				bearerToken, err := auth.GetBearerToken(r.Header)
+				if err != nil {
+					marshal, _ := json.Marshal(utils.Error{
+						Error: "invalid authentication token",
+					})
+					w.WriteHeader(http.StatusUnauthorized)
+					w.Write(marshal)
+					return
+				}
+				userID, validateJWTErr := auth.ValidateJWT(bearerToken, string(config.JwtSecret))
+				if validateJWTErr != nil {
+					marshal, _ := json.Marshal(utils.Error{
+						Error: "invalid authentication token",
+					})
+					w.WriteHeader(http.StatusForbidden)
+					w.Write(marshal)
+					return
+				}
+				if id != "" {
+					chirp, err := config.DbQueries.RetrieveChirpById(r.Context(), uuid.MustParse(id))
+					if err != nil {
+						marshal, _ := json.Marshal(utils.Error{
+							Error: "chirp not found",
+						})
+						w.WriteHeader(http.StatusNotFound)
+						w.Write(marshal)
+						return
+					}
+					if userID != chirp.UserID {
+						marshal, _ := json.Marshal(utils.Error{
+							Error: "unauthorized action",
+						})
+						w.WriteHeader(http.StatusForbidden)
+						w.Write(marshal)
+						return
+					}
+					deleteChirpErr := config.DbQueries.DeleteChirpById(r.Context(), chirp.ID)
+					if deleteChirpErr != nil {
+						marshal, _ := json.Marshal(utils.Error{
+							Error: "chirp not found",
+						})
+						w.WriteHeader(http.StatusNotFound)
+						w.Write(marshal)
+						return
+					}
+					w.WriteHeader(http.StatusNoContent)
+					return
+				} else {
+					marshal, _ := json.Marshal(utils.Error{
+						Error: "invalid chirp id",
+					})
+					w.WriteHeader(http.StatusBadRequest)
+					w.Write(marshal)
+					return
+				}
+			} else {
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				return
 			}
-			type response struct {
-				ID        uuid.UUID `json:"id"`
-				CreatedAt time.Time `json:"created_at"`
-				UpdatedAt time.Time `json:"updated_at"`
-				Body      string    `json:"body"`
-				UserID    uuid.UUID `json:"user_id"`
-			}
-			id := r.PathValue("id")
-			if id != "" {
-				chirp, err := config.DbQueries.RetrieveChirpById(r.Context(), uuid.MustParse(id))
-				if err != nil {
-					w.WriteHeader(http.StatusNotFound)
-					return
-				}
 
-				if chirp.Body == "" {
-					w.WriteHeader(http.StatusNotFound)
-					return
-				}
-
-				dat, err := json.Marshal(response{
-					ID:        chirp.ID,
-					CreatedAt: chirp.CreatedAt,
-					UpdatedAt: chirp.UpdatedAt,
-					Body:      chirp.Body,
-					UserID:    chirp.UserID,
-				})
-				if err != nil {
-					log.Printf("error writing /validate_chirp response: %v", err)
-					w.WriteHeader(http.StatusInternalServerError)
-					return
-				}
-				w.Write(dat)
-				return
-			}
 		},
 	)
 	go serveMux.HandleFunc(
