@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"fmt"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -101,4 +102,25 @@ func (s *ValidateJWTTestSuite) TestInvalidClaims() {
 
 func TestValidateJWT(t *testing.T) {
 	suite.Run(t, new(ValidateJWTTestSuite))
+}
+
+type ValidateRefreshTokenGeneration struct {
+	suite.Suite
+}
+
+func (s *ValidateRefreshTokenGeneration) SetupSuite() {}
+
+func (s *ValidateRefreshTokenGeneration) TestRefreshTokenGeneration() {
+	token, err := MakeRefreshToken()
+	if err != nil {
+		return
+	}
+	fmt.Printf("Token: %v\n", token)
+	assert.NotEqual(s.T(), "", token)
+	assert.Equal(s.T(), 64, len(token))
+	assert.Equal(s.T(), 64, len("7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069"))
+}
+
+func TestValidateRefreshTokenGeneration(t *testing.T) {
+	suite.Run(t, new(ValidateRefreshTokenGeneration))
 }

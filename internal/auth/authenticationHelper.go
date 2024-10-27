@@ -1,7 +1,10 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -44,13 +47,30 @@ func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (str
 }
 
 func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
-	decoded, _ := jwt.Parse(tokenString, nil)
-	issuer, err := decoded.Claims.GetIssuer()
-	subject, err := decoded.Claims.GetSubject()
-	expirationTime, err := decoded.Claims.GetExpirationTime()
-	at, err := decoded.Claims.GetIssuedAt()
-	if err != nil {
-		return [16]byte{}, err
+	decoded, parseErr := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(tokenSecret), nil
+	})
+	if parseErr != nil {
+		return uuid.Nil, parseErr
+	}
+	issuer, issuerErr := decoded.Claims.GetIssuer()
+	if issuerErr != nil {
+		return [16]byte{}, issuerErr
+	}
+	subject, subjectErr := decoded.Claims.GetSubject()
+	if subjectErr != nil {
+		return [16]byte{}, subjectErr
+	}
+	expirationTime, expErr := decoded.Claims.GetExpirationTime()
+	if expErr != nil {
+		return [16]byte{}, expErr
+	}
+	at, atErr := decoded.Claims.GetIssuedAt()
+	if atErr != nil {
+		return [16]byte{}, atErr
 	}
 	claims := &jwt.RegisteredClaims{
 		Issuer:    issuer,
@@ -86,4 +106,14 @@ func GetBearerToken(header http.Header) (string, error) {
 		return "", errors.New("missing Authorization header")
 	}
 	return strings.Split(authHeader, " ")[1], nil
+}
+
+func MakeRefreshToken() (string, error) {
+	bytes := make([]byte, 32)
+	_, err := rand.Read(bytes)
+	if err != nil {
+		return "", err
+	}
+	refreshToken := hex.EncodeToString(bytes)
+	return refreshToken, nil
 }

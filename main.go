@@ -193,7 +193,11 @@ func main() {
 					}
 					userID, err := auth.ValidateJWT(bearerToken, string(config.jwtSecret))
 					if err != nil {
+						marshal, _ := json.Marshal(errorAndMessage{
+							Error: err.Error(),
+						})
 						w.WriteHeader(http.StatusUnauthorized)
+						w.Write(marshal)
 						return
 					}
 					chirp, err := config.dbQueries.CreateChirp(r.Context(), database.CreateChirpParams{
@@ -380,20 +384,20 @@ func main() {
 				return
 			}
 			type parameters struct {
-				Email            string `json:"email"`
-				Password         string `json:"password"`
-				ExpiresInSeconds int    `json:"expires_in_seconds"`
+				Email    string `json:"email"`
+				Password string `json:"password"`
 			}
 			type errorAndMessage struct {
 				Error   string `json:"error"`
 				Message string `json:"message"`
 			}
 			type response struct {
-				ID        uuid.UUID `json:"id"`
-				CreatedAt time.Time `json:"created_at"`
-				UpdatedAt time.Time `json:"updated_at"`
-				Email     string    `json:"email"`
-				Token     string    `json:"token"`
+				ID           uuid.UUID `json:"id"`
+				CreatedAt    time.Time `json:"created_at"`
+				UpdatedAt    time.Time `json:"updated_at"`
+				Email        string    `json:"email"`
+				Token        string    `json:"token"`
+				RefreshToken string    `json:"refresh_token"`
 			}
 			w.Header().Add("Content-Type", "application/json")
 			decoder := json.NewDecoder(r.Body)
@@ -417,28 +421,133 @@ func main() {
 				w.Write(marshal)
 				return
 			}
-			var expiresInSeconds int
-			if params.ExpiresInSeconds == 0 || params.ExpiresInSeconds > 3600 {
-				expiresInSeconds = 3600
-			} else {
-				expiresInSeconds = params.ExpiresInSeconds
-			}
-			jwt, JWTerr := auth.MakeJWT(user.ID, string(config.jwtSecret), time.Duration(expiresInSeconds))
+			accessToken, JWTerr := auth.MakeJWT(user.ID, string(config.jwtSecret), time.Hour)
 			if JWTerr != nil {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
+			refreshToken, err := auth.MakeRefreshToken()
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			_, err = config.dbQueries.CreateRefreshToken(
+				r.Context(),
+				database.CreateRefreshTokenParams{
+					Token:     refreshToken,
+					UserID:    user.ID,
+					ExpiresAt: time.Now().Add(24 * 60 * time.Hour),
+				},
+			)
+			if err != nil {
+				return
+			}
 			data, err := json.Marshal(response{
-				ID:        user.ID,
-				Email:     user.Email,
-				CreatedAt: user.CreatedAt,
-				UpdatedAt: user.UpdatedAt,
-				Token:     jwt,
+				ID:           user.ID,
+				Email:        user.Email,
+				CreatedAt:    user.CreatedAt,
+				UpdatedAt:    user.UpdatedAt,
+				Token:        accessToken,
+				RefreshToken: refreshToken,
 			})
 			if err != nil {
 				return
 			}
 			w.Write(data)
+		},
+	)
+	go serveMux.HandleFunc(
+		"/api/refresh",
+		func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != "POST" {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			type response struct {
+				Token string `json:"token"`
+			}
+			bearerToken, err := auth.GetBearerToken(r.Header)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			refreshToken, err := config.dbQueries.GetRefreshTokenByToken(
+				r.Context(),
+				bearerToken,
+			)
+			if err != nil {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			if refreshToken.RevokedAt.Valid {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			if refreshToken.ExpiresAt.Before(time.Now()) {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			/*
+				err = config.dbQueries.UpdateRefreshTokenByToken(
+					r.Context(),
+					database.UpdateRefreshTokenByTokenParams{
+						Token:     refreshToken.Token,
+						CreatedAt: refreshToken.CreatedAt,
+						UserID:    refreshToken.UserID,
+						ExpiresAt: time.Now().Add(24 * 60 * time.Hour),
+						RevokedAt: sql.NullTime{Time: time.Now(), Valid: true},
+					},
+				)
+				if err != nil {
+					return
+				}
+			*/
+			accessToken, err := auth.MakeJWT(refreshToken.UserID, string(config.jwtSecret), time.Hour)
+			if err != nil {
+				return
+			}
+			marshal, err := json.Marshal(response{
+				Token: accessToken,
+			})
+			if err != nil {
+				return
+			}
+			w.Write(marshal)
+			return
+		},
+	)
+
+	go serveMux.HandleFunc(
+		"/api/revoke",
+		func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != "POST" {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			bearerToken, err := auth.GetBearerToken(r.Header)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			refreshToken, err := config.dbQueries.GetRefreshTokenByToken(r.Context(), bearerToken)
+			if err != nil {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			err = config.dbQueries.UpdateRefreshTokenByToken(
+				r.Context(),
+				database.UpdateRefreshTokenByTokenParams{
+					Token:     refreshToken.Token,
+					CreatedAt: refreshToken.CreatedAt,
+					UserID:    refreshToken.UserID,
+					ExpiresAt: time.Now().Add(24 * 60 * time.Hour),
+					RevokedAt: sql.NullTime{Time: time.Now(), Valid: true},
+				},
+			)
+			if err != nil {
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
 		},
 	)
 
