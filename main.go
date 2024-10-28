@@ -211,6 +211,7 @@ func main() {
 
 				}
 			} else if r.Method == "GET" {
+				author := r.URL.Query().Get("author_id")
 				type response struct {
 					ID        uuid.UUID `json:"id"`
 					CreatedAt time.Time `json:"created_at"`
@@ -218,27 +219,57 @@ func main() {
 					Body      string    `json:"body"`
 					UserID    uuid.UUID `json:"user_id"`
 				}
-				if r.Method != "GET" {
-					w.WriteHeader(http.StatusMethodNotAllowed)
-					return
-				}
 				w.Header().Add("Content-Type", "application/json")
-				chirps, err := config.DbQueries.RetrieveChirps(r.Context())
-				if err != nil {
-					return
-				}
-				retChirps := make([]response, len(chirps))
-				for i, chirp := range chirps {
-					retChirps[i] = response{
-						ID:        chirp.ID,
-						CreatedAt: chirp.CreatedAt,
-						UpdatedAt: chirp.UpdatedAt,
-						Body:      chirp.Body,
-						UserID:    chirp.UserID,
+				if author != "" {
+					parsed, parseErr := uuid.Parse(author)
+					if parseErr != nil {
+						marshal, _ := json.Marshal(utils.Error{
+							Error: "invalid author",
+						})
+						w.WriteHeader(http.StatusBadRequest)
+						w.Write(marshal)
+						return
 					}
+					chirps, err := config.DbQueries.RetrieveChirpsByAuthor(r.Context(), parsed)
+					if err != nil {
+						marshal, _ := json.Marshal(utils.Error{
+							Error: "chirps by given author is not found",
+						})
+						w.WriteHeader(http.StatusNotFound)
+						w.Write(marshal)
+						return
+					}
+					retChirps := make([]response, len(chirps))
+					for i, chirp := range chirps {
+						retChirps[i] = response{
+							ID:        chirp.ID,
+							CreatedAt: chirp.CreatedAt,
+							UpdatedAt: chirp.UpdatedAt,
+							Body:      chirp.Body,
+							UserID:    chirp.UserID,
+						}
+					}
+					dat, err := json.Marshal(retChirps)
+					w.Write(dat)
+					return
+				} else {
+					chirps, err := config.DbQueries.RetrieveChirps(r.Context())
+					if err != nil {
+						return
+					}
+					retChirps := make([]response, len(chirps))
+					for i, chirp := range chirps {
+						retChirps[i] = response{
+							ID:        chirp.ID,
+							CreatedAt: chirp.CreatedAt,
+							UpdatedAt: chirp.UpdatedAt,
+							Body:      chirp.Body,
+							UserID:    chirp.UserID,
+						}
+					}
+					dat, err := json.Marshal(retChirps)
+					w.Write(dat)
 				}
-				dat, err := json.Marshal(retChirps)
-				w.Write(dat)
 			}
 		},
 	)
